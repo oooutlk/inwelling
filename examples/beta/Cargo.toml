@@ -1,0 +1,13 @@
+[package]
+name = "beta"
+version = "0.1.0"
+authors = ["oooutlk <oooutlk@outlook.com>"]
+edition = "2018"
+publish = false
+
+[dependencies]
+echo = { path = "../echo" }
+alpha = { path = "../alpha" }
+
+[package.metadata.inwelling.echo]
+beta = true

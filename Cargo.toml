@@ -1,0 +1,17 @@
+[package]
+name = "inwelling"
+version = "0.1.0"
+authors = ["oooutlk <oooutlk@outlook.com>"]
+edition = "2018"
+license = "MIT/Apache-2.0"
+keywords = [ "cargo", "metadata", "downstream", "inject", "reverse" ]
+readme = "README.md"
+repository = "https://github.com/oooutlk/inwelling"
+documentation = "https://docs.rs/inwelling"
+categories = [ "development-tools::build-utils" ]
+description = "Collects metadata from downstream's Cargo.toml files."
+
+[dependencies]
+cargo_metadata = "0.12"
+pals = "0.1"
+serde_json = "1.0"
