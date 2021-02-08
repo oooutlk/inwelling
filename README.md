@@ -46,7 +46,7 @@ in downstream crates' Cargo.toml files will be collected by `inwelling()`.
 
 # Examples
 
-See this [demo](https://github.com/oooutlk/inwelling/tree/main/src/examples/)
+See this [demo](https://github.com/oooutlk/inwelling/tree/main/examples/)
 for more.
 
 The `echo` crate has build-dependency of inwelling crate:
