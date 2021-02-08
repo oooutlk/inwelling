@@ -50,7 +50,7 @@
 //! .[inwelling crate]     [common ancestor]
 //! ```
 //!
-//! The information in section `[packages.metadata.inwelling.{common ancestor}.*]`
+//! The information in section `[package.metadata.inwelling.{common ancestor}.*]`
 //! in downstream crates' Cargo.toml files will be collected by `inwelling()`.
 //!
 //! # Examples
