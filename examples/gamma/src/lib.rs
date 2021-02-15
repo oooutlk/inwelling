@@ -1,6 +1,6 @@
 pub fn test() {
     let metadata = echo::echo();
-    assert!( metadata.find("<gamma>: {\"gamma\":true}\n").is_some() );
+    assert!( metadata.find("\"gamma\":true").is_some() );
 }
 
 #[cfg( test )]

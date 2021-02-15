@@ -18,3 +18,5 @@ alpha = true
 Use `cargo test -- --nocapture` to check the metadata.
 
 Note that "alpha = true" will not be echoed twice in `echo::echo()`.
+
+Use `cargo test --no-default-features` to demonstrate optional metadata.

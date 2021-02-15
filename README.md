@@ -1,4 +1,4 @@
-# Problem To Resolve
+# Problem To Solve
 
 Sometimes a crate needs to gather information from its downstream users.
 
@@ -124,7 +124,16 @@ pub fn test() {
 }
 ```
 
+# Optional Metadata
+
+Cargo features can control whether to send metadata or not. in section
+`[package.metadata.inwelling.{common ancestor}]`, a value of `feature = blah`
+means that the metadata will be collected by inwelling if and only if blah
+feature is enabled. See beta crate in examples for more.
+
 # Caveat
+
+## Reverse Dependency
 
 Collecting metadata from downstream and utilizing it in build process makes a
 crate depending on its downstream crates. Unfortunately this kind of
@@ -136,6 +145,14 @@ To address this issue, simply do `cargo clean`, or more precisely,
 `cargo clean --package {crate-collecting-metadata}` before running
 `cargo build`. Substitute `{crate-collecting-metadata}` with actual crate name,
 e.g. `cargo clean --package echo` in the examples above.
+
+## Lacking Of `PWD` Environment Variable On Windows
+
+Without official support from cargo, this library requires environment variable
+such as `PWD` to locate topmost crate's Cargo.toml. Unfortunately `PWD` is
+missing on Windows platform. This library will panic if it is feeling no luck to
+locate Cargo.toml. However, `PWD` is not mandatory, unless `inwelling()` told
+you so.
 
 # License
 

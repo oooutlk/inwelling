@@ -9,5 +9,10 @@ publish = false
 echo = { path = "../echo" }
 alpha = { path = "../alpha" }
 
+[features]
+default = ["better"]
+better = []
+
 [package.metadata.inwelling.echo]
 beta = true
+feature = "better"
