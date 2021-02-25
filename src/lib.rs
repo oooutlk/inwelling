@@ -136,7 +136,7 @@
 //! # Optional Metadata
 //!
 //! Cargo features can control whether to send metadata or not. in section
-//! `[package.metadata.inwelling.{common ancestor}]`, a value of `feature = blah`
+//! `[package.metadata.inwelling-{common ancestor}]`, a value of `feature = blah`
 //! means that the metadata will be collected by inwelling if and only if blah
 //! feature is enabled. See beta crate in examples for more.
 //!
@@ -209,6 +209,7 @@ pub fn inwelling() -> Inwelling {
     let mut target_dir_defined_in_cmdline = false;
 
     let pals = pals::pals();
+
     if let Ok( pals ) = pals {
         if let Some( parent ) = pals.parent_of( Pid( process::id() )) {
             if let Some( parent ) = pals.parent_of( parent.ppid ) {
@@ -263,31 +264,30 @@ pub fn inwelling() -> Inwelling {
     let metadata = command
         .manifest_path( &manifest_path )
         .exec()
-        .unwrap();
+        .expect("cargo metadata command should be executed successfully.");
 
-    let build_name = env::var("CARGO_PKG_NAME").unwrap();
+    let build_name = env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME");
 
-    let enabled = metadata.resolve.unwrap().nodes.iter().fold( HashMap::new(), |mut map, node| {
+    let enabled_features = metadata.resolve.expect("package dependencies resolved.").nodes.iter().fold( HashMap::new(), |mut map, node| {
         map.insert( node.id.clone(), node.features.clone() );
         map
     });
 
     metadata.packages.into_iter().fold( Inwelling::default(), |mut inwelling, mut pkg| {
         let pkg_id = pkg.id.clone();
-        if let Some( section ) = pkg.metadata.get_mut("inwelling") {
-            if let Some( metadata ) = section.get_mut( &build_name ) {
-                if !metadata
-                    .as_object()
-                    .and_then( |object| object.get( "feature" ))
-                    .map( |feature| {
-                        let feature = feature.as_str().expect( "feature should be str." );
-                        enabled[ &pkg_id ]
-                            .iter()
-                            .find( |&enabled_feature| enabled_feature == feature )
-                            .is_none()
-                    })
-                    .unwrap_or_default()
-                {
+
+        let enabled = pkg.metadata
+            .get( &format!( "inwelling-{}", &build_name ))
+            .and_then( |section| section.get( "feature" ))
+            .and_then( |feature| {
+                let feature = feature.as_str().expect("feature name should be str.");
+                Some( enabled_features[ &pkg_id ].iter().find( |&enabled_feature| enabled_feature == &feature ).is_some() )
+            })
+            .unwrap_or( true );
+
+        if enabled {
+            if let Some( section ) = pkg.metadata.get_mut("inwelling") {
+                if let Some( metadata ) = section.get_mut( &build_name ) {
                     inwelling.sections.push( Section{
                         pkg      : pkg.name,
                         manifest : pkg.manifest_path,
@@ -296,6 +296,7 @@ pub fn inwelling() -> Inwelling {
                 }
             }
         }
+
         inwelling
     })
 }

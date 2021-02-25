@@ -13,6 +13,8 @@ alpha = { path = "../alpha" }
 default = ["better"]
 better = []
 
+[package.metadata.inwelling-echo]
+feature = "better"
+
 [package.metadata.inwelling.echo]
 beta = true
-feature = "better"

@@ -127,7 +127,7 @@ pub fn test() {
 # Optional Metadata
 
 Cargo features can control whether to send metadata or not. in section
-`[package.metadata.inwelling.{common ancestor}]`, a value of `feature = blah`
+`[package.metadata.inwelling-{common ancestor}]`, a value of `feature = blah`
 means that the metadata will be collected by inwelling if and only if blah
 feature is enabled. See beta crate in examples for more.
 
