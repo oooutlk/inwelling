@@ -140,15 +140,26 @@
 //! means that the metadata will be collected by inwelling if and only if blah
 //! feature is enabled. See beta crate in examples for more.
 //!
+//! # Other information collected from downstream crates
+//!
+//! The following information are also collected:
+//!
+//! - Package names.
+//!
+//! - Cargo.toml files' paths.
+//!
+//! - Optional .rs file paths. Call `inwelling()` with the argument
+//! `inwelling::Opt::dump_rs_paths == true` to collect.
+//!
 //! # Caveat
 //!
 //! ## Reverse Dependency
 //!
 //! Collecting metadata from downstream and utilizing it in build process makes a
 //! crate depending on its downstream crates. Unfortunately this kind of
-//! reverse-dependency is not known to cargo. As a result, the changing of metadata
-//! caused by modification of Cargo.toml files or changing of feature set will not
-//! cause recompilation of the crate collecting metadata, which it should.
+//! reverse-dependency is not known to cargo. As a result, the changing of feature
+//! set will not cause recompilation of the crate collecting metadata, which it
+//! should.
 //!
 //! To address this issue, simply do `cargo clean`, or more precisely,
 //! `cargo clean --package {crate-collecting-metadata}` before running
@@ -177,10 +188,9 @@ use std::{
     process,
 };
 
-/// Metadata collected from downstream crates.
+/// Information collected from downstream crates.
 #[derive( Debug )]
 pub struct Inwelling {
-    /// sections gathered from downstream Cargo.toml files
     pub sections : Vec<Section>,
 }
 
@@ -190,7 +200,15 @@ impl Default for Inwelling {
     }
 }
 
-/// Metadata collected from downstream crates, in `[package.metadata.inwelling.*]` sections.
+/// Information collected from one downstream crate. Including:
+///
+/// - Package name.
+///
+/// - Cargo.toml file' path.
+///
+/// - metadata from `[package.metadata.inwelling.*]` section in Cargo.toml file.
+///
+/// - Optional .rs file paths.
 #[derive( Debug )]
 pub struct Section {
     /// name of the package which collects metadata from its downstream crates.
@@ -199,10 +217,58 @@ pub struct Section {
     pub manifest : PathBuf,
     /// metadata represented in JSON.
     pub metadata : serde_json::value::Value,
+    /// .rs files under src/, examples/ and tests/ directories if dump_rs_file is
+    /// true, otherwise `None`.
+    pub rs_paths : Option<Vec<PathBuf>>,
 }
 
-/// Collects metadata from `[package.metadata.inwelling.*]` sections in downstream crates' Cargo.toml files.
-pub fn inwelling() -> Inwelling {
+fn scan_rs_paths( current_dir: impl AsRef<Path>, rs_paths: &mut Vec<PathBuf> ) {
+    if let Ok( entries ) = current_dir.as_ref().read_dir() {
+        for entry in entries {
+            if let Ok( entry ) = entry {
+                let path = entry.path();
+                if path.is_dir() {
+                    scan_rs_paths( path, rs_paths );
+                } else if let Some( extention ) = path.extension() {
+                    if extention == "rs" {
+                        rs_paths.push( path );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Options passed to inwelling().
+pub struct Opts {
+    /// build.rs using inwelling() will re-run if downstream crates' Cargo.toml files have been changed.
+    pub watch_manifest : bool,
+    /// build.rs using inwelling() will re-run if downstream crates' .rs files have been changed.
+    pub watch_rs_files : bool,
+    /// if this flag is true, inwelling()'s returning value will contain .rs file paths.
+    pub dump_rs_paths  : bool,
+}
+
+impl Default for Opts {
+    fn default() -> Opts {
+        Opts {
+            watch_manifest : true,
+            watch_rs_files : false,
+            dump_rs_paths  : false,
+        }
+    }
+}
+
+/// Collects information from downstream crates. Including:
+///
+/// - Package names.
+///
+/// - Cargo.toml files' paths.
+///
+/// - metadata from `[package.metadata.inwelling.*]` sections in Cargo.toml files.
+///
+/// - Optional .rs file paths.
+pub fn inwelling( Opts{ watch_manifest, watch_rs_files, dump_rs_paths }: Opts ) -> Inwelling {
     let mut command = MetadataCommand::new();
 
     let mut manifest_path = None;
@@ -268,30 +334,52 @@ pub fn inwelling() -> Inwelling {
 
     let build_name = env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME");
 
-    let enabled_features = metadata.resolve.expect("package dependencies resolved.").nodes.iter().fold( HashMap::new(), |mut map, node| {
-        map.insert( node.id.clone(), node.features.clone() );
-        map
-    });
+    let enabled_features = metadata
+        .resolve
+        .expect("package dependencies resolved.")
+        .nodes.iter().fold( HashMap::new(), |mut map, node| {
+            map.insert( node.id.clone(), node.features.clone() );
+            map
+        });
 
     metadata.packages.into_iter().fold( Inwelling::default(), |mut inwelling, mut pkg| {
         let pkg_id = pkg.id.clone();
 
-        let enabled = pkg.metadata
-            .get( &format!( "inwelling-{}", &build_name ))
+        let mut rs_paths = Vec::new();
+
+        let enabled = pkg.metadata.get( &format!( "inwelling-{}", &build_name ))
             .and_then( |section| section.get( "feature" ))
-            .and_then( |feature| {
+            .map( |feature| {
                 let feature = feature.as_str().expect("feature name should be str.");
-                Some( enabled_features[ &pkg_id ].iter().find( |&enabled_feature| enabled_feature == &feature ).is_some() )
+                enabled_features[ &pkg_id ]
+                    .iter()
+                    .find( |&enabled_feature| enabled_feature == &feature )
+                    .is_some()
             })
             .unwrap_or( true );
 
         if enabled {
+            if watch_manifest {
+                println!( "cargo:rerun-if-changed={}", pkg.manifest_path.to_str().unwrap() );
+            }
+            if dump_rs_paths || watch_rs_files {
+                let manifest_path = pkg.manifest_path.parent().unwrap();
+                scan_rs_paths( &manifest_path.join( "src"      ), &mut rs_paths );
+                scan_rs_paths( &manifest_path.join( "examples" ), &mut rs_paths );
+                scan_rs_paths( &manifest_path.join( "tests"    ), &mut rs_paths );
+                if watch_rs_files {
+                    rs_paths.iter().for_each( |rs_file|
+                        println!( "cargo:rerun-if-changed={}", rs_file.to_str().unwrap() ));
+                }
+            }
+
             if let Some( section ) = pkg.metadata.get_mut("inwelling") {
                 if let Some( metadata ) = section.get_mut( &build_name ) {
                     inwelling.sections.push( Section{
                         pkg      : pkg.name,
                         manifest : pkg.manifest_path,
                         metadata : metadata.take(),
+                        rs_paths : if dump_rs_paths { Some( rs_paths )} else { None },
                     });
                 }
             }

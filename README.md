@@ -131,15 +131,26 @@ Cargo features can control whether to send metadata or not. in section
 means that the metadata will be collected by inwelling if and only if blah
 feature is enabled. See beta crate in examples for more.
 
+# Other information collected from downstream crates
+
+The following information are also collected:
+
+- Package names.
+
+- Cargo.toml files' paths.
+
+- Optional .rs file paths. Call `inwelling()` with the argument
+`inwelling::Opt::dump_rs_paths == true` to collect.
+
 # Caveat
 
 ## Reverse Dependency
 
 Collecting metadata from downstream and utilizing it in build process makes a
 crate depending on its downstream crates. Unfortunately this kind of
-reverse-dependency is not known to cargo. As a result, the changing of metadata
-caused by modification of Cargo.toml files or changing of feature set will not
-cause recompilation of the crate collecting metadata, which it should.
+reverse-dependency is not known to cargo. As a result, the changing of feature
+set will not cause recompilation of the crate collecting metadata, which it
+should.
 
 To address this issue, simply do `cargo clean`, or more precisely,
 `cargo clean --package {crate-collecting-metadata}` before running
