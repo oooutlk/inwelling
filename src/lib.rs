@@ -70,10 +70,12 @@
 //! In `build.rs`:
 //!
 //! ```rust,no_run
+//! use inwelling::*;
+//!
 //! use std::{env, fs, path::PathBuf};
 //!
 //! fn main() {
-//!     let metadata_from_downstream = inwelling::inwelling()
+//!     let metadata_from_downstream = inwelling( Opts::default() )
 //!         .sections
 //!         .into_iter()
 //!         .fold( String::new(), |acc, section|
