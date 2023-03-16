@@ -1,171 +1,60 @@
-# Problem To Solve
-
-Sometimes a crate needs to gather information from its downstream users.
-
-Frequently used mechanisms:
-
-- Cargo features.
-
-  The are friendly to cargo tools but not applicable for passing free contents
-  because they are predefined options.
-
-- Environment variables.
-
-  They can pass free contents, but are not friendly to cargo tools.
-
 # Project Goal
 
-To provide a mechanism that is both friendly to cargo tools and able to pass
-free contents.
+To provide a mechanism for upstream crates to collect information from
+downstream crates.
 
-# Library Overview
+# Use cases
 
-This library helps to send metadata through the hierarchy of crates, from
-downstream crates to one of their common ancestor.
+## Case 1, anonymous struct
 
-The main API is `inwelling()`, which is expected to be called in `build.rs` of
-the common ancestor crate.
+Rust does not provide anonymous struct yet. To simulate this feature, we want to
+define the struct's fields and access to its value at the same place. The
+upstream crate providing anonymous struct simulation must know all the ad-hoc
+`struct`s among its downstream crates source code, to define them before
+downstream crates start to compile.
 
-```text
-.      +--------------> [topmost crate]
-.      |      3            |       ^
-.      |                  4|       |8
-.      |                   |       |
-.      |                 [dependencies]
-.      |2                  |       |
-.      |                   |       |
-.      |        (metadata) |5     7| (API)
-.      |                   |       |
-.      |        1          v   6   |
-. inwelling() <---- build.rs ----> bindings.rs
-.[inwelling crate]     [common ancestor]
-```
+## Case 2, get rid of the multiple `-sys` crates
 
-The information in section `[package.metadata.inwelling.{common ancestor}.*]`
-in downstream crates' Cargo.toml files will be collected by `inwelling()`.
+It would be nice if we have a unified method of compiling APIs from
+"the C world" instead of maintain multiple `-sys` crates. And same APIs which
+are defined in the same header files may be separated in different `-sys`
+crates, e.g. `tcl_sys::TCL_OK` and `tk_sys::TCL_OK`.  Some crate such as
+[cib](https://crates.io/crates/clib) tries provide a unified method to compile C
+libraries and provides a unified namespace `clib::`.
 
-# Examples
+# Information collected from downstream crates
 
-See this [demo](https://github.com/oooutlk/inwelling/tree/main/examples/)
-for more.
+Invoking `collect_downstream()` will collect the following information from
+crates which called `register()` in its `build.rs`.
 
-The `echo` crate has build-dependency of inwelling crate:
+- Package name.
 
-```toml
-[build-dependencies]
-inwelling = { path = "../.." }
-```
+- Metadata defined in `Cargo.toml`.
 
-And provides `echo()` which simply returns what it recieves as strings.
+- Manifest paths of `Cargo.toml`.
 
-In `build.rs`:
-
-```rust
-use inwelling::*;
-
-use std::{env, fs, path::PathBuf};
-
-fn main() {
-    let metadata_from_downstream = inwelling( Opts::default() )
-        .sections
-        .into_iter()
-        .fold( String::new(), |acc, section|
-            format!( "{}{:?} <{}>: {}\n"
-                , acc
-                , section.manifest
-                , section.pkg
-                , section.metadata.to_string() ));
-
-    let out_path = PathBuf::from( env::var( "OUT_DIR" )
-        .expect( "$OUT_DIR should exist." )
-    ).join( "metadata_from_downstream" );
-
-    fs::write(
-        out_path,
-        metadata_from_downstream
-    ).expect( "metadata_from_downstream generated." );
-}
-```
-
-In `lib.rs`:
-
-```rust
-pub fn echo() -> String {
-    include_str!( concat!( env!( "OUT_DIR" ), "/metadata_from_downstream" ))
-        .to_owned()
-}
-```
-
-The gamma crate depends on alpha crate and conditionally depends on beta crate.
-The beta crate depends on alpha crate. The alpha, beta and gamma ccrates all
-depend on echo crate.
-
-```text
-.      +---------------> [gamma crate]    gamma=true
-.      |                   .       ^           ^
-.      |       gamma=true  .       |           |
-.      |                   .       |           |
-.      |            [beta crate]   |       beta=true
-.      |                   |       |           |
-.      |        beta=true  |       |           |
-.      |                   |       |           |
-.      |                 [alpha crate]    alpha=true
-.      |                   |       |           |
-.      |       alpha=true  |       |           |
-.      |                   v       |           |
-. inwelling() <---- build.rs ----> `echo()`----+
-.[inwelling crate]       [echo crate]
-```
-
-In alpha crate's test code:
-
-```rust,no_run
-pub fn test() {
-    let metadata = echo::echo();
-    assert!( metadata.find("<alpha>: {\"alpha\":true}\n").is_some() );
-}
-```
-
-# Optional Metadata
-
-Cargo features can control whether to send metadata or not. in section
-`[package.metadata.inwelling-{common ancestor}]`, a value of `feature = blah`
-means that the metadata will be collected by inwelling if and only if blah
-feature is enabled. See beta crate in examples for more.
-
-# Other information collected from downstream crates
-
-The following information are also collected:
-
-- Package names.
-
-- Cargo.toml files' paths.
-
-- Optional .rs file paths. Call `inwelling()` with the argument
+- Source file paths(optional). Call `collect_downstream()` with the argument
 `inwelling::Opt::dump_rs_paths == true` to collect.
 
-# Caveat
+# Quickstart
 
-## Reverse Dependency
+1. The upstream crate e.g. `crate foo` calls `inwelling::collect_downstream()`
+in its `build.rs` and do whatever it want to generate APIs for downstream.
 
-Collecting metadata from downstream and utilizing it in build process makes a
-crate depending on its downstream crates. Unfortunately this kind of
-reverse-dependency is not known to cargo. As a result, the changing of feature
-set will not cause recompilation of the crate collecting metadata, which it
-should.
+2. The downstream crate e.g. `crate bar` calls `inwelling::register()` in its
+`build.rs`.
 
-To address this issue, simply do `cargo clean`, or more precisely,
-`cargo clean --package {crate-collecting-metadata}` before running
-`cargo build`. Substitute `{crate-collecting-metadata}` with actual crate name,
-e.g. `cargo clean --package echo` in the examples above.
+```rust
+// build.rs
+fn main() { inwelling::register(); }
+```
 
-## Lacking Of `PWD` Environment Variable On Windows
+To send some metadata to upstream, encode them in `Cargo.toml`'s package metadata.
 
-Without official support from cargo, this library requires environment variable
-such as `PWD` to locate topmost crate's Cargo.toml. Unfortunately `PWD` is
-missing on Windows platform. This library will panic if it is feeling no luck to
-locate Cargo.toml. However, `PWD` is not mandatory, unless `inwelling()` told
-you so.
+```toml
+[package.metadata.inwelling.foo]
+answer = { type = "integer", value = "42" }
+```
 
 # License
 

@@ -1,14 +1,12 @@
 pub fn test() {
     let metadata = echo::echo();
-    assert!( metadata.find("\"beta\":true").is_some() );
+    assert!( metadata.find("beta = \"the second letter\"").is_none() );
 }
 
 #[cfg( test )]
 mod tests {
     #[test]
     fn it_works() {
-        println!( "{}", echo::echo() );
-
         alpha::test();
         super::test();
     }

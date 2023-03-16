@@ -2,19 +2,15 @@
 name = "beta"
 version = "0.1.0"
 authors = ["oooutlk <oooutlk@outlook.com>"]
-edition = "2018"
+edition = "2021"
 publish = false
 
 [dependencies]
 echo = { path = "../echo" }
 alpha = { path = "../alpha" }
 
-[features]
-default = ["better"]
-better = []
-
-[package.metadata.inwelling-echo]
-feature = "better"
+[build-dependencies]
+inwelling = { path = "../.." }
 
 [package.metadata.inwelling.echo]
-beta = true
+beta = "the second letter"

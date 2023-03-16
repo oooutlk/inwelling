@@ -2,13 +2,16 @@
 name = "gamma"
 version = "0.1.0"
 authors = ["oooutlk <oooutlk@outlook.com>"]
-edition = "2018"
+edition = "2021"
 publish = false
 
 [dependencies]
 echo = { path = "../echo" }
 alpha = { path = "../alpha" }
-beta = { path = "../beta", optional = true }
+beta = { path = "../beta" }
+
+[build-dependencies]
+inwelling = { path = "../.." }
 
 [package.metadata.inwelling.echo]
-gamma = true
+gamma = "the third letter"

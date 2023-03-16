@@ -7,198 +7,61 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-//! # Problem To Solve
-//!
-//! Sometimes a crate needs to gather information from its downstream users.
-//!
-//! Frequently used mechanisms:
-//!
-//! - Cargo Features.
-//!
-//!   The are friendly to cargo tools but not applicable for passing free contents
-//!   because they are predefined options.
-//!
-//! - Environment Variables.
-//!
-//!   They can pass free contents, but are not friendly to cargo tools.
-//!
 //! # Project Goal
+//! To provide a mechanism for upstream crates to collect information from
+//! downstream crates.
 //!
-//! To provide a mechanism that is both friendly to cargo tools and able to pass
-//! free contents.
+//! # Information collected from downstream crates
 //!
-//! # Library Overview
+//! Invoking `collect_downstream()` will collect the following information from
+//! crates which called `register()` in its `build.rs`.
 //!
-//! This library helps to send metadata through the hierarchy of crates, from
-//! downstream crates to one of their common ancestor.
+//! - Package name.
 //!
-//! The main API is `inwelling()`, which is expected to be called in `build.rs` of
-//! the common ancestor crate.
+//! - Metadata defined in `Cargo.toml`.
 //!
-//! ```text
-//! .      +--------------> [topmost crate]
-//! .      |      3            |       ^
-//! .      |                  4|       |8
-//! .      |                   |       |
-//! .      |                 [dependencies]
-//! .      |2                  |       |
-//! .      |                   |       |
-//! .      |        (metadata) |5     7| (API)
-//! .      |                   |       |
-//! .      |        1          v   6   |
-//! . inwelling() <---- build.rs ----> bindings.rs
-//! .[inwelling crate]     [common ancestor]
-//! ```
+//! - Manifest paths of `Cargo.toml`.
 //!
-//! The information in section `[package.metadata.inwelling.{common ancestor}.*]`
-//! in downstream crates' Cargo.toml files will be collected by `inwelling()`.
-//!
-//! # Examples
-//!
-//! See this [demo](https://github.com/oooutlk/inwelling/tree/main/examples/)
-//! for more.
-//!
-//! The `echo` crate has build-dependency of inwelling crate:
-//!
-//! ```toml
-//! [build-dependencies]
-//! inwelling = { path = "../.." }
-//! ```
-//!
-//! And provides `echo()` which simply returns what it recieves as strings.
-//!
-//! In `build.rs`:
-//!
-//! ```rust,no_run
-//! use inwelling::*;
-//!
-//! use std::{env, fs, path::PathBuf};
-//!
-//! fn main() {
-//!     let metadata_from_downstream = inwelling( Opts::default() )
-//!         .sections
-//!         .into_iter()
-//!         .fold( String::new(), |acc, section|
-//!             format!( "{}{:?} <{}>: {}\n"
-//!                 , acc
-//!                 , section.manifest
-//!                 , section.pkg
-//!                 , section.metadata.to_string() ));
-//!
-//!     let out_path = PathBuf::from( env::var( "OUT_DIR" )
-//!         .expect( "$OUT_DIR should exist." )
-//!     ).join( "metadata_from_downstream" );
-//!
-//!     fs::write(
-//!         out_path,
-//!         metadata_from_downstream
-//!     ).expect( "metadata_from_downstream generated." );
-//! }
-//! ```
-//!
-//! In `lib.rs`:
-//!
-//! ```rust,no_run
-//! pub fn echo() -> String {
-//!     include_str!( concat!( env!( "OUT_DIR" ), "/metadata_from_downstream" ))
-//!         .to_owned()
-//! }
-//! ```
-//!
-//! The gamma crate depends on alpha crate and conditionally depends on beta crate.
-//! The beta crate depends on alpha crate. The alpha, beta and gamma ccrates all
-//! depend on echo crate.
-//!
-//! ```text
-//! .      +---------------> [gamma crate]    gamma=true
-//! .      |                   .       ^           ^
-//! .      |       gamma=true  .       |           |
-//! .      |                   .       |           |
-//! .      |            [beta crate]   |       beta=true
-//! .      |                   |       |           |
-//! .      |        beta=true  |       |           |
-//! .      |                   |       |           |
-//! .      |                 [alpha crate]    alpha=true
-//! .      |                   |       |           |
-//! .      |       alpha=true  |       |           |
-//! .      |                   v       |           |
-//! . inwelling() <---- build.rs ----> `echo()`----+
-//! .[inwelling crate]       [echo crate]
-//! ```
-//!
-//! In alpha crate's test code:
-//!
-//! ```rust,no_run
-//! pub fn test() {
-//!     let metadata = echo::echo();
-//!     assert!( metadata.find("<alpha>: {\"alpha\":true}\n").is_some() );
-//! }
-//! ```
-//!
-//! # Optional Metadata
-//!
-//! Cargo features can control whether to send metadata or not. in section
-//! `[package.metadata.inwelling-{common ancestor}]`, a value of `feature = blah`
-//! means that the metadata will be collected by inwelling if and only if blah
-//! feature is enabled. See beta crate in examples for more.
-//!
-//! # Other information collected from downstream crates
-//!
-//! The following information are also collected:
-//!
-//! - Package names.
-//!
-//! - Cargo.toml files' paths.
-//!
-//! - Optional .rs file paths. Call `inwelling()` with the argument
+//! - Source file paths(optional). Call `collect_downstream()` with the argument
 //! `inwelling::Opt::dump_rs_paths == true` to collect.
 //!
-//! # Caveat
+//! # Quickstart
 //!
-//! ## Reverse Dependency
+//! 1. The upstream crate e.g. `crate foo` calls `inwelling::collect_downstream()`
+//!    in its `build.rs` and do whatever it want to generate APIs for downstream.
 //!
-//! Collecting metadata from downstream and utilizing it in build process makes a
-//! crate depending on its downstream crates. Unfortunately this kind of
-//! reverse-dependency is not known to cargo. As a result, the changing of feature
-//! set will not cause recompilation of the crate collecting metadata, which it
-//! should.
+//! 2. The downstream crate e.g. `crate bar` calls `inwelling::register()` in its
+//!    `build.rs`.
 //!
-//! To address this issue, simply do `cargo clean`, or more precisely,
-//! `cargo clean --package {crate-collecting-metadata}` before running
-//! `cargo build`. Substitute `{crate-collecting-metadata}` with actual crate name,
-//! e.g. `cargo clean --package echo` in the examples above.
+//!    ```rust,no_run
+//!    // build.rs
+//!    fn main() { inwelling::register(); }
+//!    ```
 //!
-//! ## Lacking Of `PWD` Environment Variable On Windows
+//!    To send some metadata to upstream `crate foo`, encode them in `Cargo.toml`'s
+//!    package metadata.
 //!
-//! Without official support from cargo, this library requires environment variable
-//! such as `PWD` to locate topmost crate's Cargo.toml. Unfortunately `PWD` is
-//! missing on Windows platform. This library will panic if it is feeling no luck to
-//! locate Cargo.toml. However, `PWD` is not mandatory, unless `inwelling()` told
-//! you so.
-
-use cargo_metadata::{
-    CargoOpt,
-    MetadataCommand,
-};
-
-use pals::Pid;
+//!    ```toml
+//!    [package.metadata.inwelling.foo]
+//!    answer = { type = "integer", value = "42" }
+//!    ```
 
 use std::{
-    collections::HashMap,
+    collections::HashSet,
     env,
+    fs,
     path::{Path, PathBuf},
-    process,
 };
 
 /// Information collected from downstream crates.
 #[derive( Debug )]
-pub struct Inwelling {
-    pub sections : Vec<Section>,
+pub struct Downstream {
+    pub packages : Vec<Package>,
 }
 
-impl Default for Inwelling {
+impl Default for Downstream {
     fn default() -> Self {
-        Inwelling{ sections: Vec::new() }
+        Downstream{ packages: Vec::new() }
     }
 }
 
@@ -212,15 +75,15 @@ impl Default for Inwelling {
 ///
 /// - Optional .rs file paths.
 #[derive( Debug )]
-pub struct Section {
-    /// name of the package which collects metadata from its downstream crates.
-    pub pkg      : String,
-    /// path of Cargo.toml.
+pub struct Package {
+    /// name of the package which called `register()` in its `build.rs`.
+    pub name     : String,
+    /// path of `Cargo.toml`.
     pub manifest : PathBuf,
-    /// metadata represented in JSON.
-    pub metadata : serde_json::value::Value,
-    /// .rs files under src/, examples/ and tests/ directories if dump_rs_file is
-    /// true, otherwise `None`.
+    /// metadata represented in Toml.
+    pub metadata : toml::Value,
+    /// .rs files under src/, examples/ and tests/ directories if `dump_rs_file`
+    /// is true, otherwise `None`.
     pub rs_paths : Option<Vec<PathBuf>>,
 }
 
@@ -270,117 +133,49 @@ impl Default for Opts {
 /// - metadata from `[package.metadata.inwelling.*]` sections in Cargo.toml files.
 ///
 /// - Optional .rs file paths.
-pub fn inwelling( Opts{ watch_manifest, watch_rs_files, dump_rs_paths }: Opts ) -> Inwelling {
-    let mut command = MetadataCommand::new();
-
-    let mut manifest_path = None;
-    let mut target_dir_defined_in_cmdline = false;
-
-    let pals = pals::pals();
-
-    if let Ok( pals ) = pals {
-        if let Some( parent ) = pals.parent_of( Pid( process::id() )) {
-            if let Some( parent ) = pals.parent_of( parent.ppid ) {
-                let mut argv = parent.argv();
-                while let Some( arg ) = argv.next() {
-                    match arg {
-                        "--all-features" => {
-                            command.features( CargoOpt::AllFeatures );
-                        },
-                        "--features" => if let Some( features ) = argv.next() {
-                            command.features( CargoOpt::SomeFeatures( features
-                                .split_ascii_whitespace()
-                                .map( ToOwned::to_owned )
-                                .collect()
-                            ));
-                        },
-                        "--no-default-features" => {
-                            command.features( CargoOpt::NoDefaultFeatures );
-                        },
-                        "--manifest-path" if cfg!( unix ) => if let Some( path ) = argv.next() {
-                            manifest_path = Some( PathBuf::from( path ));
-                        }
-                        "--target-dir" => target_dir_defined_in_cmdline = true,
-                        _ => (),
-                    }
-                }
-            }
-        }
-    }
-
-    let manifest_path = manifest_path.unwrap_or_else( ||
-        if let Ok( cwd ) = env::var("PWD") {
-            return PathBuf::from( cwd ).join( "Cargo.toml" );
-        } else {
-            if !target_dir_defined_in_cmdline {
-                if let Ok( out_dir ) = env::var("OUT_DIR") {
-                    let out_dir = Path::new( &out_dir );
-                    let ancestors = out_dir.ancestors();
-                    if let Some( manifest_dir ) = ancestors.skip(5).next() {
-                        return manifest_dir.join( "Cargo.toml" );
-                    }
-                }
-            }
-            panic!("Failed to locate manifest path. Consider providing PWD environment variable.")
-        }
-    );
-
-    if !manifest_path.exists() {
-        panic!( "{:?} should be manifest file", manifest_path );
-    }
-
-    let metadata = command
-        .manifest_path( &manifest_path )
-        .exec()
-        .expect("cargo metadata command should be executed successfully.");
+pub fn collect_downstream( Opts{ watch_manifest, watch_rs_files, dump_rs_paths }: Opts ) -> Downstream {
+    let manifest_paths = locate_manifest_paths();
 
     let build_name = env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME");
 
-    let enabled_features = metadata
-        .resolve
-        .expect("package dependencies resolved.")
-        .nodes.iter().fold( HashMap::new(), |mut map, node| {
-            map.insert( node.id.clone(), node.features.clone() );
-            map
-        });
-
-    metadata.packages.into_iter().fold( Inwelling::default(), |mut inwelling, mut pkg| {
-        let pkg_id = pkg.id.clone();
+    manifest_paths.into_iter().fold( Downstream::default(), |mut inwelling, manifest_path| {
+        let cargo_toml =
+            fs::read_to_string( PathBuf::from( &manifest_path ))
+            .expect( &format!( "to read {:?}", manifest_path ))
+            .parse::<toml::Table>()
+            .expect( &format!( "{:?} should be a valid manifest", manifest_path ));
+        let package = cargo_toml.get( "package" )
+            .expect( &format!( "{:?} should contain '[package]' section", manifest_path ));
+        let package_name = package.as_table()
+            .expect( &format!( "[package] section in {:?} should contain key-value pair(s)", manifest_path ))
+            .get( "name" )
+            .expect( &format!( "{:?} should contain package name", manifest_path ))
+            .as_str()
+            .expect( &format!( "{:?}'s package name should be a string", manifest_path ))
+            .to_owned();
 
         let mut rs_paths = Vec::new();
 
-        let enabled = pkg.metadata.get( &format!( "inwelling-{}", &build_name ))
-            .and_then( |section| section.get( "feature" ))
-            .map( |feature| {
-                let feature = feature.as_str().expect("feature name should be str.");
-                enabled_features[ &pkg_id ]
-                    .iter()
-                    .find( |&enabled_feature| enabled_feature == &feature )
-                    .is_some()
-            })
-            .unwrap_or( true );
-
-        if enabled {
-            if watch_manifest {
-                println!( "cargo:rerun-if-changed={}", pkg.manifest_path.to_str().unwrap() );
+        if watch_manifest {
+            println!( "cargo:rerun-if-changed={}", manifest_path.to_str().unwrap() );
+        }
+        if dump_rs_paths || watch_rs_files {
+            let manifest_dir = manifest_path.parent().unwrap();
+            scan_rs_paths( &manifest_dir.join( "src"      ), &mut rs_paths );
+            scan_rs_paths( &manifest_dir.join( "examples" ), &mut rs_paths );
+            scan_rs_paths( &manifest_dir.join( "tests"    ), &mut rs_paths );
+            if watch_rs_files {
+                rs_paths.iter().for_each( |rs_file|
+                    println!( "cargo:rerun-if-changed={}", rs_file.to_str().unwrap() ));
             }
-            if dump_rs_paths || watch_rs_files {
-                let manifest_path = pkg.manifest_path.parent().unwrap();
-                scan_rs_paths( &manifest_path.join( "src"      ), &mut rs_paths );
-                scan_rs_paths( &manifest_path.join( "examples" ), &mut rs_paths );
-                scan_rs_paths( &manifest_path.join( "tests"    ), &mut rs_paths );
-                if watch_rs_files {
-                    rs_paths.iter().for_each( |rs_file|
-                        println!( "cargo:rerun-if-changed={}", rs_file.to_str().unwrap() ));
-                }
-            }
-
-            if let Some( section ) = pkg.metadata.get_mut("inwelling") {
-                if let Some( metadata ) = section.get_mut( &build_name ) {
-                    inwelling.sections.push( Section{
-                        pkg      : pkg.name,
-                        manifest : pkg.manifest_path,
-                        metadata : metadata.take(),
+        }
+        if let Some( metadata ) = package.get( "metadata" ) {
+            if let Some( metadata_inwelling ) = metadata.get("inwelling") {
+                if let Some( metadata_inwelling_build ) = metadata_inwelling.get( &build_name ) {
+                    inwelling.packages.push( Package{
+                        name     : package_name,
+                        manifest : manifest_path,
+                        metadata : metadata_inwelling_build.clone(),
                         rs_paths : if dump_rs_paths { Some( rs_paths )} else { None },
                     });
                 }
@@ -389,4 +184,49 @@ pub fn inwelling( Opts{ watch_manifest, watch_rs_files, dump_rs_paths }: Opts ) 
 
         inwelling
     })
+}
+
+// the path of the file that stores the downstream crate's manifest directory.
+const MANIFEST_DIR_INWELLING: &'static str = "manifest_dir.inwelling";
+
+fn locate_manifest_paths() -> HashSet<PathBuf> {
+    let mut path_bufs = HashSet::new();
+
+    let out_dir = PathBuf::from( env::var( "OUT_DIR" ).expect( "$OUT_DIR should exist." ));
+    let ancestors = out_dir.ancestors();
+    let build_dir = ancestors.skip(2).next().expect( "'build' directory should exist." );
+
+    for  entry in build_dir.read_dir().expect( &format!( "to list all sub dirs in {:?}", build_dir )) {
+        if let Ok( entry ) = entry {
+            let path = entry.path();
+            if path.is_dir() {
+                let manifest_path_txt = path.join("out").join( MANIFEST_DIR_INWELLING );
+                if manifest_path_txt.exists() {
+                     path_bufs.insert(
+                         PathBuf::from(
+                             fs::read_to_string( &manifest_path_txt )
+                                 .expect( &format!( "to read {:?} to get one manifest path", manifest_path_txt )))
+                         .join( "Cargo.toml" )
+                     );
+                }
+            }
+        }
+    }
+    path_bufs
+}
+
+/// Allow some upstream crate to collect information from this crate.
+pub fn register() {
+    let out_path =
+        PathBuf::from(
+            env::var( "OUT_DIR" )
+                .expect( "$OUT_DIR should exist." )
+        ).join( MANIFEST_DIR_INWELLING );
+    let manifest_dir =
+        env::var( "CARGO_MANIFEST_DIR" )
+            .expect( "$CARGO_MANIFEST_DIR should exist." );
+    fs::write(
+        out_path,
+        manifest_dir
+    ).expect( "manifest_dir.txt generated." );
 }
