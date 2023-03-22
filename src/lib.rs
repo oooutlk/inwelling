@@ -14,7 +14,7 @@
 //! # Information collected from downstream crates
 //!
 //! Invoking `collect_downstream()` will collect the following information from
-//! crates which called `register()` in its `build.rs`.
+//! crates which called `inwelling::to()` in its `build.rs`.
 //!
 //! - Package name.
 //!
@@ -30,12 +30,12 @@
 //! 1. The upstream crate e.g. `crate foo` calls `inwelling::collect_downstream()`
 //!    in its `build.rs` and do whatever it want to generate APIs for downstream.
 //!
-//! 2. The downstream crate e.g. `crate bar` calls `inwelling::register()` in its
+//! 2. The downstream crate e.g. `crate bar` calls `inwelling::to()` in its
 //!    `build.rs`.
 //!
 //!    ```rust,no_run
 //!    // build.rs
-//!    fn main() { inwelling::register(); }
+//!    fn main() { inwelling::to( "foo" ); }
 //!    ```
 //!
 //!    To send some metadata to upstream `crate foo`, encode them in `Cargo.toml`'s
@@ -47,9 +47,10 @@
 //!    ```
 
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     env,
-    fs,
+    fs::{self, File},
+    io::Write,
     path::{Path, PathBuf},
 };
 
@@ -76,7 +77,7 @@ impl Default for Downstream {
 /// - Optional .rs file paths.
 #[derive( Debug )]
 pub struct Package {
-    /// name of the package which called `register()` in its `build.rs`.
+    /// name of the package which called `inwelling::to()` in its `build.rs`.
     pub name     : String,
     /// path of `Cargo.toml`.
     pub manifest : PathBuf,
@@ -138,46 +139,48 @@ pub fn collect_downstream( Opts{ watch_manifest, watch_rs_files, dump_rs_paths }
 
     let build_name = env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME");
 
-    manifest_paths.into_iter().fold( Downstream::default(), |mut inwelling, manifest_path| {
-        let cargo_toml =
-            fs::read_to_string( PathBuf::from( &manifest_path ))
-            .expect( &format!( "to read {:?}", manifest_path ))
-            .parse::<toml::Table>()
-            .expect( &format!( "{:?} should be a valid manifest", manifest_path ));
-        let package = cargo_toml.get( "package" )
-            .expect( &format!( "{:?} should contain '[package]' section", manifest_path ));
-        let package_name = package.as_table()
-            .expect( &format!( "[package] section in {:?} should contain key-value pair(s)", manifest_path ))
-            .get( "name" )
-            .expect( &format!( "{:?} should contain package name", manifest_path ))
-            .as_str()
-            .expect( &format!( "{:?}'s package name should be a string", manifest_path ))
-            .to_owned();
+    manifest_paths.into_iter().fold( Downstream::default(), |mut inwelling, (manifest_path, upstreams)| {
+        if upstreams.contains( &build_name ) {
+            let cargo_toml =
+                fs::read_to_string( PathBuf::from( &manifest_path ))
+                .expect( &format!( "to read {:?}", manifest_path ))
+                .parse::<toml::Table>()
+                .expect( &format!( "{:?} should be a valid manifest", manifest_path ));
+            let package = cargo_toml.get( "package" )
+                .expect( &format!( "{:?} should contain '[package]' section", manifest_path ));
+            let package_name = package.as_table()
+                .expect( &format!( "[package] section in {:?} should contain key-value pair(s)", manifest_path ))
+                .get( "name" )
+                .expect( &format!( "{:?} should contain package name", manifest_path ))
+                .as_str()
+                .expect( &format!( "{:?}'s package name should be a string", manifest_path ))
+                .to_owned();
 
-        let mut rs_paths = Vec::new();
+            let mut rs_paths = Vec::new();
 
-        if watch_manifest {
-            println!( "cargo:rerun-if-changed={}", manifest_path.to_str().unwrap() );
-        }
-        if dump_rs_paths || watch_rs_files {
-            let manifest_dir = manifest_path.parent().unwrap();
-            scan_rs_paths( &manifest_dir.join( "src"      ), &mut rs_paths );
-            scan_rs_paths( &manifest_dir.join( "examples" ), &mut rs_paths );
-            scan_rs_paths( &manifest_dir.join( "tests"    ), &mut rs_paths );
-            if watch_rs_files {
-                rs_paths.iter().for_each( |rs_file|
-                    println!( "cargo:rerun-if-changed={}", rs_file.to_str().unwrap() ));
+            if watch_manifest {
+                println!( "cargo:rerun-if-changed={}", manifest_path.to_str().unwrap() );
             }
-        }
-        if let Some( metadata ) = package.get( "metadata" ) {
-            if let Some( metadata_inwelling ) = metadata.get("inwelling") {
-                if let Some( metadata_inwelling_build ) = metadata_inwelling.get( &build_name ) {
-                    inwelling.packages.push( Package{
-                        name     : package_name,
-                        manifest : manifest_path,
-                        metadata : metadata_inwelling_build.clone(),
-                        rs_paths : if dump_rs_paths { Some( rs_paths )} else { None },
-                    });
+            if dump_rs_paths || watch_rs_files {
+                let manifest_dir = manifest_path.parent().unwrap();
+                scan_rs_paths( &manifest_dir.join( "src"      ), &mut rs_paths );
+                scan_rs_paths( &manifest_dir.join( "examples" ), &mut rs_paths );
+                scan_rs_paths( &manifest_dir.join( "tests"    ), &mut rs_paths );
+                if watch_rs_files {
+                    rs_paths.iter().for_each( |rs_file|
+                        println!( "cargo:rerun-if-changed={}", rs_file.to_str().unwrap() ));
+                }
+            }
+            if let Some( metadata ) = package.get( "metadata" ) {
+                if let Some( metadata_inwelling ) = metadata.get("inwelling") {
+                    if let Some( metadata_inwelling_build ) = metadata_inwelling.get( &build_name ) {
+                        inwelling.packages.push( Package{
+                            name     : package_name,
+                            manifest : manifest_path,
+                            metadata : metadata_inwelling_build.clone(),
+                            rs_paths : if dump_rs_paths { Some( rs_paths )} else { None },
+                        });
+                    }
                 }
             }
         }
@@ -189,25 +192,27 @@ pub fn collect_downstream( Opts{ watch_manifest, watch_rs_files, dump_rs_paths }
 // the path of the file that stores the downstream crate's manifest directory.
 const MANIFEST_DIR_INWELLING: &'static str = "manifest_dir.inwelling";
 
-fn locate_manifest_paths() -> HashSet<PathBuf> {
-    let mut path_bufs = HashSet::new();
+fn locate_manifest_paths() -> HashMap<PathBuf,Vec<String>> {
+    let mut path_bufs = HashMap::new();
 
     let out_dir = PathBuf::from( env::var( "OUT_DIR" ).expect( "$OUT_DIR should exist." ));
     let ancestors = out_dir.ancestors();
     let build_dir = ancestors.skip(2).next().expect( "'build' directory should exist." );
 
-    for  entry in build_dir.read_dir().expect( &format!( "to list all sub dirs in {:?}", build_dir )) {
+    for entry in build_dir.read_dir().expect( &format!( "to list all sub dirs in {:?}", build_dir )) {
         if let Ok( entry ) = entry {
             let path = entry.path();
             if path.is_dir() {
-                let manifest_path_txt = path.join("out").join( MANIFEST_DIR_INWELLING );
-                if manifest_path_txt.exists() {
-                     path_bufs.insert(
-                         PathBuf::from(
-                             fs::read_to_string( &manifest_path_txt )
-                                 .expect( &format!( "to read {:?} to get one manifest path", manifest_path_txt )))
-                         .join( "Cargo.toml" )
-                     );
+                let inwelling_file_path = path.join("out").join( MANIFEST_DIR_INWELLING );
+                if inwelling_file_path.exists() {
+                    let contents = fs::read_to_string( &inwelling_file_path )
+                        .expect( &format!( "to read {:?} to get one manifest path", inwelling_file_path ));
+                    let mut lines = contents.lines();
+                    let manifest_dir = lines.next()
+                        .expect( &format!( "{:?} should contain the line of manifest dir.", inwelling_file_path ));
+                    path_bufs
+                        .entry( PathBuf::from( manifest_dir ).join( "Cargo.toml" ))
+                        .or_insert_with( || lines.map( ToOwned::to_owned ).collect() );
                 }
             }
         }
@@ -215,18 +220,27 @@ fn locate_manifest_paths() -> HashSet<PathBuf> {
     path_bufs
 }
 
-/// Allow some upstream crate to collect information from this crate.
-pub fn register() {
+/// Allow the upstream crate to collect information from this crate.
+// The first line is manifest_dir
+// The rest lines are upstream package names, one per line.
+pub fn to( upstream: &str ) {
     let out_path =
         PathBuf::from(
             env::var( "OUT_DIR" )
                 .expect( "$OUT_DIR should exist." )
         ).join( MANIFEST_DIR_INWELLING );
-    let manifest_dir =
-        env::var( "CARGO_MANIFEST_DIR" )
-            .expect( "$CARGO_MANIFEST_DIR should exist." );
-    fs::write(
-        out_path,
-        manifest_dir
-    ).expect( "manifest_dir.txt generated." );
+    if out_path.exists() {
+        let mut f = File::options().append( true ).open( &out_path )
+            .expect( &format!( "{:?} should be opened for appending.", out_path ));
+        writeln!( &mut f, "{}", upstream )
+            .expect( &format!( "An upstream name should be appended to {:?}.", out_path ));
+    } else {
+        let manifest_dir =
+            env::var( "CARGO_MANIFEST_DIR" )
+                .expect( "$CARGO_MANIFEST_DIR should exist." );
+        fs::write(
+            out_path,
+            format!( "{}\n{}\n", manifest_dir, upstream )
+        ).expect( "manifest_dir.txt generated." );
+    }
 }

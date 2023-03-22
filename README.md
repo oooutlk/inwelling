@@ -24,8 +24,8 @@ libraries and provides a unified namespace `clib::`.
 
 # Information collected from downstream crates
 
-Invoking `collect_downstream()` will collect the following information from
-crates which called `register()` in its `build.rs`.
+Invoking `inwelling::collect_downstream()` will collect the following
+information from crates which called `inwelling::to()` in its `build.rs`.
 
 - Package name.
 
@@ -41,12 +41,12 @@ crates which called `register()` in its `build.rs`.
 1. The upstream crate e.g. `crate foo` calls `inwelling::collect_downstream()`
 in its `build.rs` and do whatever it want to generate APIs for downstream.
 
-2. The downstream crate e.g. `crate bar` calls `inwelling::register()` in its
+2. The downstream crate e.g. `crate bar` calls `inwelling::to()` in its
 `build.rs`.
 
 ```rust
 // build.rs
-fn main() { inwelling::register(); }
+fn main() { inwelling::to( "foo" ); }
 ```
 
 To send some metadata to upstream, encode them in `Cargo.toml`'s package metadata.

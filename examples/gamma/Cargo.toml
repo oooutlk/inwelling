@@ -13,5 +13,8 @@ beta = { path = "../beta" }
 [build-dependencies]
 inwelling = { path = "../.." }
 
+[features]
+to_echo = []
+
 [package.metadata.inwelling.echo]
 gamma = "the third letter"

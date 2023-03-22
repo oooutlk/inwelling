@@ -1,7 +1,6 @@
 pub fn test() {
     let metadata = echo::echo();
-    dbg!( &metadata ); 
-    assert!( metadata.find("gamma = \"the third letter\"").is_some() );
+    assert_eq!( metadata.find("gamma = \"the third letter\"").is_some(), cfg!( feature = "to_echo" ));
 }
 
 #[cfg( test )]
