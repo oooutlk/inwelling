@@ -8,6 +8,7 @@
 // except according to those terms.
 
 //! # Project Goal
+//!
 //! To provide a mechanism for upstream crates to collect information from
 //! downstream crates.
 //!
@@ -52,6 +53,8 @@ use std::{
     fs::{self, File},
     io::Write,
     path::{Path, PathBuf},
+    thread,
+    time,
 };
 
 /// Information collected from downstream crates.
@@ -198,6 +201,8 @@ fn locate_manifest_paths() -> HashMap<PathBuf,Vec<String>> {
     let out_dir = PathBuf::from( env::var( "OUT_DIR" ).expect( "$OUT_DIR should exist." ));
     let ancestors = out_dir.ancestors();
     let build_dir = ancestors.skip(2).next().expect( "'build' directory should exist." );
+
+    thread::sleep( time::Duration::from_secs(1) );
 
     for entry in build_dir.read_dir().expect( &format!( "to list all sub dirs in {:?}", build_dir )) {
         if let Ok( entry ) = entry {
