@@ -195,7 +195,7 @@ const MANIFEST_DIR_INWELLING: &'static str = "manifest_dir.inwelling";
 
 fn watch_or_not_watch( build_name: &str, build_dir: &Path ) -> (HashSet<String>,HashSet<PathBuf> ) {
     let mut watch = HashSet::<String>::new(); // Package name
-    let mut not_watch = HashSet::<PathBuf>::new(); // Package name + uniq id suffix
+    let mut not_watch = HashSet::<PathBuf>::new(); // don't watch these paths
 
     for entry in build_dir.read_dir().unwrap() {
         if let Ok( entry ) = entry {
@@ -212,16 +212,15 @@ fn watch_or_not_watch( build_name: &str, build_dir: &Path ) -> (HashSet<String>,
                         {
                             if let Some( ext ) = path.extension() {
                                 if ext == "d" {
-                                    for line in fs::read_to_string( dbg!(&path) ).unwrap().lines() {
+                                    for line in fs::read_to_string( &path ).unwrap().lines() {
                                         if let Some(pos) = line.find(':') {
                                             for s in line[pos+1..].split(' ') {
                                                 if s.ends_with(".rs") {
                                                     let build_script = PathBuf::from( s );
-                                                    if let Ok( contents ) = fs::read_to_string( dbg!(&build_script) ) {
-                                                        if contents.contains("inwelling::to") &&
+                                                    if let Ok( contents ) = fs::read_to_string( &build_script ) {
+                                                        if contents.contains("inwelling") &&
                                                             contents.contains( &format!("\"{build_name}\""))
                                                         {
-                                                            dbg!( &path, &build_script );
                                                             let parent = path.parent().unwrap();
                                                             let filename = parent
                                                                 .file_name().unwrap()
