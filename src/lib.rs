@@ -272,7 +272,7 @@ fn locate_manifest_paths( build_name: &str ) -> HashMap<PathBuf,Vec<String>> {
                         path_bufs
                             .entry( PathBuf::from( manifest_dir ).join( "Cargo.toml" ))
                             .or_insert_with( || lines.map( ToOwned::to_owned ).collect() );
-                    } else if let Some(s) = path.to_str() {
+                    } else if let Some(s) = path.file_name().unwrap().to_str() {
                         if let Some(pos) = s.rfind('-') {
                             if watch.contains( &s[..pos] ) && !not_watch.contains( &path ) {
                                 pending = true;
