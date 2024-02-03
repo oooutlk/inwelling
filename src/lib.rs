@@ -193,9 +193,9 @@ pub fn collect_downstream( Opts{ watch_manifest, watch_rs_files, dump_rs_paths }
 // the path of the file that stores the downstream crate's manifest directory.
 const MANIFEST_DIR_INWELLING: &'static str = "manifest_dir.inwelling";
 
-fn watch_or_not_watch( build_name: &str, build_dir: &Path ) -> (HashSet<String>,HashSet<PathBuf> ) {
-    let mut watch = HashSet::<String>::new(); // Package name
-    let mut not_watch = HashSet::<PathBuf>::new(); // don't watch these paths
+fn collect_inwelling_pkgs_and_bsb_paths( build_name: &str, build_dir: &Path ) -> (HashSet<String>,HashSet<PathBuf> ) {
+    let mut inwelling_pkgs = HashSet::<String>::new(); // which packages will generate manifest.inwelling
+    let mut bsb_paths = HashSet::<PathBuf>::new(); // don't watch these paths starting with build_script_build
 
     for entry in build_dir.read_dir().unwrap() {
         if let Ok( entry ) = entry {
@@ -213,36 +213,22 @@ fn watch_or_not_watch( build_name: &str, build_dir: &Path ) -> (HashSet<String>,
                             if let Some( ext ) = path.extension() {
                                 if ext == "d" {
                                     for line in fs::read_to_string( &path ).unwrap().lines() {
-                                        if let Some(pos) = line.find(':') {
-                                            for s in line[pos+1..].split(' ') {
+                                        if let Some( colon ) = line.find(':') {
+                                            for s in line[ colon+1..].split(' ') {
                                                 if s.ends_with(".rs") {
                                                     let build_script = PathBuf::from( s );
                                                     if let Ok( contents ) = fs::read_to_string( &build_script ) {
-                                                        if contents.contains("inwelling") &&
-                                                            contents.contains( &format!("\"{build_name}\""))
-                                                        {
+                                                        if {  contents.contains( &format!( "\"{build_name}\"" ))
+                                                           && contents.contains("inwelling")
+                                                           && contents.contains("to")
+                                                        } {
                                                             let parent = path.parent().unwrap();
-                                                            let filename = parent
-                                                                .file_name().unwrap()
-                                                                .to_str()   .unwrap();
-                                                            let pos = filename.rfind('-').unwrap();
-                                                            watch.insert( filename[0..pos].to_owned() );
-                                                            not_watch.insert( parent.to_owned() );
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    (watch, not_watch)
+                                                            let filename = parent.file_name().unwrap().to_str().unwrap();
+                                                            let hyphen = filename.rfind('-').unwrap();
+                                                            inwelling_pkgs.insert( filename[..hyphen].to_owned() );
+                                                            bsb_paths.insert( parent.to_owned() );
+    }}}}}}}}}}}}}}
+    (inwelling_pkgs, bsb_paths)
 }
 
 fn locate_manifest_paths( build_name: &str ) -> HashMap<PathBuf,Vec<String>> {
@@ -252,7 +238,7 @@ fn locate_manifest_paths( build_name: &str ) -> HashMap<PathBuf,Vec<String>> {
     let ancestors = out_dir.ancestors();
     let build_dir = ancestors.skip(2).next().expect( "'build' directory should exist." );
 
-    let (watch, not_watch) = watch_or_not_watch( build_name, &build_dir );
+    let (inwelling_pkgs, bsb_paths) = collect_inwelling_pkgs_and_bsb_paths( build_name, &build_dir );
 
     let mut pending = true;
     while pending {
@@ -271,17 +257,12 @@ fn locate_manifest_paths( build_name: &str ) -> HashMap<PathBuf,Vec<String>> {
                         path_bufs
                             .entry( PathBuf::from( manifest_dir ).join( "Cargo.toml" ))
                             .or_insert_with( || lines.map( ToOwned::to_owned ).collect() );
-                    } else if let Some(s) = path.file_name().unwrap().to_str() {
-                        if let Some(pos) = s.rfind('-') {
-                            if watch.contains( &s[..pos] ) && !not_watch.contains( &path ) {
-                                pending = true;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+                    } else if !bsb_paths.contains( &path ) {
+                        if let Some(s) = path.file_name().unwrap().to_str() {
+                            if let Some( hyphen ) = s.rfind('-') {
+                                if inwelling_pkgs.contains( &s[..hyphen] ) {
+                                    pending = true;
+    }}}}}}}}
     path_bufs
 }
 
