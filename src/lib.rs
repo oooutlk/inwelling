@@ -257,7 +257,7 @@ fn locate_manifest_paths( build_name: &str ) -> HashMap<PathBuf,Vec<String>> {
                         path_bufs
                             .entry( PathBuf::from( manifest_dir ).join( "Cargo.toml" ))
                             .or_insert_with( || lines.map( ToOwned::to_owned ).collect() );
-                    } else if !bsb_paths.contains( &path ) {
+                    } else if cfg!( target_env="msvc" ) && !bsb_paths.contains( &path ) {
                         if let Some(s) = path.file_name().unwrap().to_str() {
                             if let Some( hyphen ) = s.rfind('-') {
                                 if inwelling_pkgs.contains( &s[..hyphen] ) {
