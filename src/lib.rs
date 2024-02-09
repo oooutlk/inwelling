@@ -53,7 +53,11 @@ use std::{
     fs::{self, File},
     io::Write,
     path::{Path, PathBuf},
+    thread,
+    time::Duration,
 };
+
+use walkdir::WalkDir;
 
 /// Information collected from downstream crates.
 #[derive( Debug )]
@@ -138,7 +142,7 @@ impl Default for Opts {
 pub fn collect_downstream( Opts{ watch_manifest, watch_rs_files, dump_rs_paths }: Opts ) -> Downstream {
     let build_name = env::var("CARGO_PKG_NAME").expect("CARGO_PKG_NAME");
 
-    let manifest_paths = locate_manifest_paths( &build_name );
+    let manifest_paths = locate_manifest_paths();
 
     manifest_paths.into_iter().fold( Downstream::default(), |mut inwelling, (manifest_path, upstreams)| {
         if upstreams.contains( &build_name ) {
@@ -193,52 +197,31 @@ pub fn collect_downstream( Opts{ watch_manifest, watch_rs_files, dump_rs_paths }
 // the path of the file that stores the downstream crate's manifest directory.
 const MANIFEST_DIR_INWELLING: &'static str = "manifest_dir.inwelling";
 
-fn collect_inwelling_pkgs_and_bsb_paths( build_name: &str, build_dir: &Path ) -> (HashSet<String>,HashSet<PathBuf> ) {
-    let mut inwelling_pkgs = HashSet::<String>::new(); // which packages will generate manifest.inwelling
-    let mut bsb_paths = HashSet::<PathBuf>::new(); // don't watch these paths starting with build_script_build
-
-    for entry in build_dir.read_dir().unwrap() {
-        if let Ok( entry ) = entry {
+fn wait_for_other_builds( build_dir: &Path ) {
+    let mut generated = HashSet::<PathBuf>::new();
+    let mut waiting = true;
+    while waiting {
+        thread::sleep( Duration::from_secs(5) );
+        waiting = false;
+        for entry in WalkDir::new( build_dir ) {
+            let entry = entry.unwrap();
             let path = entry.path();
-            if path.is_dir() {
-                for entry in path.read_dir().unwrap() {
-                    if let Ok( entry ) = entry {
-                        let path = entry.path();
-                        if path
-                            .file_stem()
-                            .and_then( |s| s.to_str() )
-                            .map( |s| s.starts_with( "build_script_build" ))
-                            .unwrap_or( false )
-                        {
-                            if let Some( ext ) = path.extension() {
-                                if ext == "d" {
-                                    for line in fs::read_to_string( &path ).unwrap().lines() {
-                                        if let Some( colon ) = line.find(':') {
-                                            for s in line[ colon+1..].split(' ') {
-                                                if s.ends_with(".rs") {
-                                                    let build_script = PathBuf::from( s );
-                                                    if let Ok( contents ) = fs::read_to_string( &build_script ) {
-                                                        if {  contents.contains( &format!( "\"{build_name}\"" ))
-                                                           && contents.contains("inwelling")
-                                                           && contents.contains("to")
-                                                        } {
-                                                            let parent = path.parent().unwrap();
-                                                            let filename = parent.file_name().unwrap().to_str().unwrap();
-                                                            let hyphen = filename.rfind('-').unwrap();
-                                                            inwelling_pkgs.insert( filename[..hyphen].to_owned() );
-                                                            bsb_paths.insert( parent.to_owned() );
-    }}}}}}}}}}}}}}
-    (inwelling_pkgs, bsb_paths)
+            if generated.insert( path.to_owned() ) {
+                waiting = true;
+            }
+        }
+    }
+    eprintln!("{generated:#?}");
 }
 
-fn locate_manifest_paths( build_name: &str ) -> HashMap<PathBuf,Vec<String>> {
+fn locate_manifest_paths() -> HashMap<PathBuf,Vec<String>> {
     let mut path_bufs = HashMap::new();
 
     let out_dir = PathBuf::from( env::var( "OUT_DIR" ).expect( "$OUT_DIR should exist." ));
     let ancestors = out_dir.ancestors();
     let build_dir = ancestors.skip(2).next().expect( "'build' directory should exist." );
 
-    let (inwelling_pkgs, bsb_paths) = collect_inwelling_pkgs_and_bsb_paths( build_name, &build_dir );
+    wait_for_other_builds( &build_dir );
 
     let mut pending = true;
     while pending {
@@ -257,12 +240,7 @@ fn locate_manifest_paths( build_name: &str ) -> HashMap<PathBuf,Vec<String>> {
                         path_bufs
                             .entry( PathBuf::from( manifest_dir ).join( "Cargo.toml" ))
                             .or_insert_with( || lines.map( ToOwned::to_owned ).collect() );
-                    } else if cfg!( any( target_env="msvc", target_os="freebsd" )) && !bsb_paths.contains( &path ) {
-                        if let Some(s) = path.file_name().unwrap().to_str() {
-                            if let Some( hyphen ) = s.rfind('-') {
-                                if inwelling_pkgs.contains( &s[..hyphen] ) {
-                                    pending = true;
-    }}}}}}}}
+    }}}}}
     path_bufs
 }
 
